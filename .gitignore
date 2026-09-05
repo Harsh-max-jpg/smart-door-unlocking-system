@@ -1,0 +1,45 @@
+# ===== Biometric / generated data (never commit) =====
+# Captured face images are personal biometric data - keep them local only.
+python/dataset/*
+!python/dataset/.gitkeep
+
+# Trained LBPH model is a generated artifact derived from the dataset above.
+python/trainer.yml
+*.yml.bak
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# ===== Secrets / credentials =====
+.env
+.env.*
+*.pem
+*.key
+secrets.*
+wifi_config.*
+
+# ===== Arduino / PlatformIO build artifacts =====
+*.hex
+*.bin
+.pio/
+build/
+
+# ===== IDE / editor files =====
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ===== OS files =====
+.DS_Store
+Thumbs.db

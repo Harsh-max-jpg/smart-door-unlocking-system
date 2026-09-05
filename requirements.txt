@@ -1,0 +1,14 @@
+# Python dependencies for the face-recognition scripts in python/
+#
+# Versions are intentionally unpinned: the original project did not
+# record which exact versions were used during development. Install
+# the latest versions available for your Python installation, e.g.:
+#   pip install -r requirements.txt
+#
+# NOTE: cv2.face (LBPHFaceRecognizer_create) requires the
+# "contrib" build of OpenCV, not the plain "opencv-python" package.
+
+opencv-contrib-python   # provides cv2 + cv2.face (LBPH recognizer, cascades)
+numpy                   # array handling for image data
+Pillow                  # image loading in trainer.py
+requests                # HTTP client used by python/face.py to call the ESP32

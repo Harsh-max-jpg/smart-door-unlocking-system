@@ -151,7 +151,7 @@ manually testing the firmware from the Arduino Serial Monitor.
 4. Real-time face detection (`face.py`)
 5. LBPH recognition + confidence check
 6. Access decision (authorized / unauthorized)
-7. Attempted communication with ESP32 (see protocol gap above)
+7. Communication with ESP32 over HTTP (`/unlock` or `/deny`)
 8. Door unlock / access denial on the ESP32 side
 9. Automatic return to locked / "System Ready" state
 

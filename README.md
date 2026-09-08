@@ -16,10 +16,10 @@ IR sensor, an LCD status display, LEDs, a relay, and a servo, and
 listens for `OPEN` / `DENIED` commands to unlock or keep the door
 locked.
 
-**Please read the [Known Issues](#known-issues) section below before
-assuming the two halves work together out of the box** — the
-integration between the Python recognizer and the ESP32 firmware has a
-verified gap that you'll need to close first.
+**Before running this for the first time, connect your computer to the
+ESP32's Wi-Fi network** — see [Installation & Running](#installation--running)
+and [`docs/setup.md`](docs/setup.md). The PC and ESP32 talk to each
+other over that network at a fixed address (`192.168.4.1`).
 
 ## Features
 
@@ -30,15 +30,14 @@ Confirmed in the actual source code:
 - Face dataset collection tool (`python/dataset.py`)
 - Model training script (`python/trainer.py`)
 - ESP32 firmware that:
+  - Hosts its own Wi-Fi access point and a small HTTP server (`/unlock`, `/deny`)
   - Displays live status ("System Ready", "Object Detected", "No Object") on a 16x2 I2C LCD
   - Reports IR sensor presence detection
-  - Unlocks (servo to 90° + relay + green LED) on an `OPEN` serial command, then automatically re-locks after 5 seconds
-  - Denies access (red LED + LCD message) on a `DENIED` serial command
-
-Not confirmed / not implemented — see [Known Issues](#known-issues):
-
-- End-to-end HTTP communication between the PC and the ESP32
-- The Python script sending a `DENIED` signal to the ESP32
+  - Unlocks (servo to 90° + relay + green LED) on `OPEN` / `GET /unlock`, then automatically re-locks after 5 seconds
+  - Denies access (red LED + LCD message) on `DENIED` / `GET /deny`
+  - Also still accepts `OPEN` / `DENIED` over USB Serial, for manual testing
+- `python/face.py` notifies the ESP32 on both authorized (`/unlock`) and
+  unauthorized (`/deny`) recognitions
 
 ## System Architecture
 
@@ -47,13 +46,15 @@ flowchart TD
     A[Webcam] --> B[Face Detection - Haar Cascade]
     B --> C[LBPH Recognition]
     C --> D{Authorized?}
-    D -->|Yes| E[python/face.py: HTTP GET to ESP32]
-    D -->|No| F[Local 'Access Denied' overlay only]
-    E -.-> G[ESP32 - no HTTP server currently]
+    D -->|Yes| E["python/face.py: GET /unlock"]
+    D -->|No| F["python/face.py: GET /deny"]
+    E --> G[ESP32 Wi-Fi AP + HTTP server]
+    F --> G
     G --> H[Relay + Servo + LEDs + LCD]
 ```
 
-Full data-flow details and the verified Serial-vs-HTTP discrepancy are
+Full data-flow details, and the history of the Serial-vs-HTTP
+discrepancy this repo originally shipped with (now fixed), are
 documented in [`docs/architecture.md`](docs/architecture.md).
 
 ## Hardware Components
@@ -98,7 +99,7 @@ LCD I2C address: `0x27`.
 - Arduino IDE with ESP32 board support
 - Python packages (see [`requirements.txt`](requirements.txt)):
   `opencv-contrib-python`, `numpy`, `Pillow`, `requests`
-- Arduino libraries: `Wire` (bundled), `LiquidCrystal_I2C`, `ESP32Servo`
+- Arduino libraries: `Wire`, `WiFi`, `WebServer` (all bundled with the ESP32 core), plus `LiquidCrystal_I2C` and `ESP32Servo` (install separately)
 
 Exact versions used during original development were not recorded, so
 none are pinned — install current versions compatible with your
@@ -119,22 +120,28 @@ python trainer.py   # train LBPH model -> trainer.yml
 python face.py      # run real-time recognition
 ```
 
-Then, separately, upload `arduino/smart_door_esp32/smart_door_esp32.ino`
-to your ESP32 via the Arduino IDE.
+Separately, upload `arduino/smart_door_esp32/smart_door_esp32.ino` to
+your ESP32 via the Arduino IDE. Then, **before running `face.py`,
+connect your computer's Wi-Fi to the ESP32's access point** (default
+name `SmartDoorESP32`, password `changeme123`, both set near the top
+of the `.ino` file) — `face.py` reaches the board at `192.168.4.1`,
+which is only reachable over that network. Full details in
+[`docs/setup.md`](docs/setup.md).
 
 ## Commands / Communication Protocol
 
-The ESP32 firmware listens on Serial for two literal command strings:
+The ESP32 firmware accepts the same two actions over **either** HTTP
+or Serial (both call identical internal functions):
 
-| Command  | ESP32 behavior                                                                 |
-|----------|----------------------------------------------------------------------------------|
-| `OPEN`   | LCD → "Door Unlocked", green LED on, relay energized, servo → 90°, waits 5s, then reverses everything and LCD → "System Ready" |
-| `DENIED` | LCD → "Access Denied", red LED on for 2s, then LCD → "Try Again" → "System Ready" |
+| Action | HTTP | Serial | ESP32 behavior |
+|---|---|---|---|
+| Unlock | `GET http://192.168.4.1/unlock` | send `OPEN` | LCD → "Door Unlocked", green LED on, relay energized, servo → 90°, waits 5s, then reverses everything and LCD → "System Ready" |
+| Deny | `GET http://192.168.4.1/deny` | send `DENIED` | LCD → "Access Denied", red LED on for 2s, then LCD → "Try Again" → "System Ready" |
 
-`python/face.py`, however, does not currently send these strings over
-Serial — it sends an HTTP GET to `http://192.168.4.1/unlock` on an
-authorized face, and sends nothing at all on a denied face. See
-[Known Issues](#known-issues).
+`python/face.py` uses the HTTP routes: it calls `/unlock` on an
+authorized face and `/deny` on an unauthorized one (each rate-limited
+to once every 5 seconds). The Serial commands remain available for
+manually testing the firmware from the Arduino Serial Monitor.
 
 ## Project Workflow
 
@@ -160,26 +167,25 @@ Confirmed messages actually present in the code:
 
 ## Known Issues
 
-1. **HTTP vs Serial mismatch (verified):** `python/face.py` sends an
-   HTTP GET to `http://192.168.4.1/unlock`; the ESP32 firmware has no
-   Wi-Fi/HTTP server and only listens on Serial for `OPEN`/`DENIED`.
-   As shipped, an authorized recognition will not currently reach the
-   ESP32. See [`docs/architecture.md`](docs/architecture.md) for two
-   ways to close this gap.
-2. **`DENIED` is never sent:** `face.py` only shows "Access Denied"
-   locally in the OpenCV window; it never notifies the ESP32, so the
-   firmware's fully-implemented `DENIED` branch (red LED, LCD message)
-   is currently unreachable from the Python side.
-3. **Blocking `delay()` calls in the ESP32 sketch:** the 5-second door
+1. **Blocking `delay()` calls in the ESP32 sketch:** the 5-second door
    window and 2-second denied indicator use blocking `delay()` calls,
-   during which the IR sensor and Serial input are not serviced. This
-   matches the original working behavior and was left unchanged, but
-   is worth knowing about if you extend the firmware.
-4. **Pin mapping mismatch with the report's circuit diagram:** the
+   during which the IR sensor, Serial input, and incoming HTTP requests
+   are not serviced. This matches the original working behavior and
+   was left unchanged, but is worth knowing about if you extend the
+   firmware.
+2. **Pin mapping mismatch with the report's circuit diagram:** the
    report's circuit diagram shows the IR sensor on D12 and the green
    LED on D33; the firmware actually uses GPIO 13 and GPIO 26
    respectively. Wire to the pins in this README/`.ino`, not the
    diagram image, if in doubt.
+3. **Default Wi-Fi AP password is a placeholder** (`changeme123`,
+   set in the `.ino` file) — fine for a private demo/classroom setup,
+   but change it before using this anywhere less controlled.
+
+Resolved (previously listed here): the HTTP-vs-Serial communication
+gap between `python/face.py` and the ESP32 firmware, and `face.py`
+never notifying the ESP32 of denied access — both fixed; see
+[`docs/architecture.md`](docs/architecture.md) for what changed.
 
 ## Security & Privacy
 
@@ -209,7 +215,7 @@ evaluator) rather than committing it to a public repository.
 | No face detected during training/recognition | Improve lighting, face the camera directly, confirm `haarcascade_frontalface_default.xml` is present |
 | `ModuleNotFoundError` for `cv2.face` | Install `opencv-contrib-python`, not the plain `opencv-python` package (they conflict — uninstall both, then reinstall only `opencv-contrib-python`) |
 | Recognized face still gets "Access Denied" | Try lowering/raising `CONFIDENCE_THRESHOLD` in `face.py` (lower = stricter) |
-| ESP32 never reacts to an authorized face | See **Known Issues #1** — the HTTP/Serial protocol mismatch |
+| `face.py` prints "⚠️ ESP32 not reachable" | Confirm your computer is connected to the ESP32's Wi-Fi AP (`SmartDoorESP32` by default), and that the Serial Monitor showed `AP IP address: 192.168.4.1` after boot |
 
 ## Project Team
 

@@ -27,13 +27,31 @@ pip install -r ../requirements.txt
    Manage Libraries**:
    - `LiquidCrystal_I2C`
    - `ESP32Servo`
-   - `Wire` is bundled with the ESP32 core (no separate install needed).
+   - `Wire`, `WiFi`, and `WebServer` are all bundled with the ESP32
+     core (no separate install needed).
 4. Open `arduino/smart_door_esp32/smart_door_esp32.ino`.
-5. Select **Tools → Board → ESP32 Dev Module** (or your specific
+5. (Optional) change `AP_SSID` / `AP_PASSWORD` near the top of the
+   file if you don't want to use the defaults.
+6. Select **Tools → Board → ESP32 Dev Module** (or your specific
    board) and the correct **Port**.
-6. Click **Upload**.
+7. Click **Upload**.
+8. Open the Serial Monitor (115200 baud) and confirm you see
+   `AP IP address: 192.168.4.1` and `HTTP server started`.
 
-## 4. Running the Python side
+## 4. Connect your computer to the ESP32's Wi-Fi network
+
+`python/face.py` reaches the ESP32 at the fixed address
+`http://192.168.4.1`, which is only reachable while your computer is
+joined to the ESP32's own Wi-Fi access point:
+
+1. On your computer, open Wi-Fi settings.
+2. Connect to the network named `SmartDoorESP32` (or whatever you set
+   `AP_SSID` to), using the password from `AP_PASSWORD` in the `.ino`
+   file (default: `changeme123`).
+3. Your computer will not have internet access while connected to this
+   network — that's expected, it's a direct link to the ESP32.
+
+## 5. Running the Python side
 
 All commands below are run from inside the `python/` directory, since
 the scripts reference `dataset/`, `trainer.yml`, and the haarcascade
@@ -57,14 +75,6 @@ python face.py
 ```
 
 Press **Esc** to exit `dataset.py` or `face.py`.
-
-## 5. Before relying on ESP32 unlock behavior
-
-Read [`architecture.md`](architecture.md) first: as shipped,
-`face.py` sends an HTTP request that the current firmware cannot
-receive (the firmware only listens on Serial). You will need to make
-one of the two changes described there before an authorized face
-actually triggers the servo/relay on the ESP32.
 
 ## 6. Repeating for multiple users
 

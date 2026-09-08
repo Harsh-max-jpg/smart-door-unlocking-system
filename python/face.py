@@ -6,7 +6,12 @@ import time
 # =========================
 # CONFIGURATION
 # =========================
-ESP32_URL = "http://192.168.4.1/unlock"
+# NOTE: connect this computer to the ESP32's own Wi-Fi network
+# (see AP_SSID in the .ino sketch) before running this script -
+# these requests only reach the board over that network.
+ESP32_BASE_URL = "http://192.168.4.1"
+ESP32_UNLOCK_URL = f"{ESP32_BASE_URL}/unlock"
+ESP32_DENY_URL = f"{ESP32_BASE_URL}/deny"
 CONFIDENCE_THRESHOLD = 60   # Slightly relaxed for better detection
 
 # =========================
@@ -48,6 +53,7 @@ cam.set(4, 480)
 print("✅ System Started... Looking for faces")
 
 last_unlock_time = 0
+last_deny_time = 0
 last_status = ""
 
 # =========================
@@ -88,7 +94,7 @@ while True:
             if time.time() - last_unlock_time > 5:
                 try:
                     print("🔓 Unlocking Door...")
-                    requests.get(ESP32_URL, timeout=2)
+                    requests.get(ESP32_UNLOCK_URL, timeout=2)
                     last_unlock_time = time.time()
                 except:
                     print("⚠️ ESP32 not reachable")
@@ -97,6 +103,15 @@ while True:
             name = "UNKNOWN"
             color = (0,0,255)
             last_status = "Access Denied"
+
+            # Avoid multiple triggers
+            if time.time() - last_deny_time > 5:
+                try:
+                    print("🚫 Notifying ESP32 of denied access...")
+                    requests.get(ESP32_DENY_URL, timeout=2)
+                    last_deny_time = time.time()
+                except:
+                    print("⚠️ ESP32 not reachable")
 
         # Display name
         cv2.putText(img, name, (x, y-10),

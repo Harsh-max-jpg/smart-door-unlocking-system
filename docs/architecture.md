@@ -33,37 +33,37 @@ flowchart TD
    on **Serial** for the text commands `OPEN` and `DENIED`, driving the
    servo, relay and LEDs accordingly.
 
-## Communication protocol — verified discrepancy
+## Communication protocol — history and current fix
 
 The original project report states that "a signal is sent to ESP32 via
-HTTP." Checking the actual source code shows this is only half true,
-and the two halves of the project do not currently agree with each
-other:
+HTTP." When this repository was first assembled, that was only half
+true: `python/face.py` sent an HTTP GET to `http://192.168.4.1/unlock`,
+but the ESP32 sketch had no Wi-Fi or HTTP server at all — only a Serial
+command parser. The two halves did not talk to each other.
 
-- **`python/face.py`** sends an **HTTP GET** request to
-  `http://192.168.4.1/unlock` when a face is authorized
-  (using the `requests` library). This matches the report's claim of HTTP.
-- **`arduino/smart_door_esp32/smart_door_esp32.ino`** contains **no
-  Wi-Fi and no HTTP server code at all**. It only reads commands from
-  the USB **Serial** connection (`Serial.readStringUntil('\n')`),
-  expecting the literal strings `"OPEN"` or `"DENIED"`.
+**This has been fixed.** The ESP32 sketch now:
 
-**Practical implication:** as uploaded, running `face.py` will attempt
-an HTTP request that the current ESP32 firmware has no way to receive
-(there is no access point or web server running on the board). For the
-system to work end-to-end, one side needs to change — for example:
+- Starts its own Wi-Fi access point (`AP_SSID` / `AP_PASSWORD` defined
+  near the top of the `.ino` file), always reachable at the fixed
+  address `192.168.4.1` (the ESP32's default softAP address).
+- Runs a small HTTP server (`WebServer.h`, bundled with the ESP32
+  Arduino core — no extra library install needed) exposing:
+  - `GET /unlock` → runs the same unlock sequence as the `OPEN` Serial command
+  - `GET /deny` → runs the same deny sequence as the `DENIED` Serial command
+- Still also accepts `OPEN` / `DENIED` over Serial, for manual testing
+  via the Serial Monitor. Both entry points call the same `doOpen()` /
+  `doDeny()` functions, so there is only one implementation of the
+  actual door behavior to keep in sync.
 
-- Add a minimal Wi-Fi AP + HTTP server to the `.ino` sketch that
-  exposes a `/unlock` route (matching what `face.py` already expects), **or**
-- Change `python/face.py` to send `"OPEN"` / `"DENIED"` strings over a
-  Serial connection (e.g. via `pyserial`) instead of an HTTP request,
-  matching what the `.ino` sketch already expects.
+`python/face.py` now also calls `GET /deny` when a face is
+unauthorized (previously it only updated the local OpenCV overlay and
+never notified the ESP32 at all).
 
-This repository ships both pieces exactly as found, and does **not**
-invent a bridge between them — see the README's "Known Issues" section.
-
-Separately, **`face.py` never sends a `"DENIED"` message anywhere** —
-on an unauthorized face it only updates the on-screen OpenCV overlay
-text locally. The ESP32's `DENIED` branch (red LED, "Access Denied" on
-LCD) is fully implemented in firmware but is not currently triggered by
-the Python script.
+**Operationally, this means:** the computer running `face.py` must be
+connected to the ESP32's Wi-Fi network (`SmartDoorESP32` by default)
+before running the script, since `192.168.4.1` is only reachable over
+that network — see [`docs/setup.md`](setup.md). If you'd rather have
+the ESP32 join your home Wi-Fi instead of hosting its own network,
+that's a further change (station mode + a way to discover its IP,
+e.g. mDNS) not included here, since it changes the fixed-IP assumption
+baked into `face.py`.
